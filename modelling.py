@@ -80,7 +80,3 @@ sample_submission = pd.read_csv('data/sample_submission.csv')
 submission = pd.merge(sample_submission[['Id']], test_data[['Id', 'StartHesitation', 'Turn', 'Walking']], how='left', on='Id').fillna(0.0)
 submission.to_csv('submission.csv', index=False)
 
-sample_sub = pd.read_csv('data/sample_submission.csv')
-
-print('index:',np.unique(sample_sub.index == submission.index, return_counts=True))
-print('id:', np.unique(sample_sub.Id == submission.Id, return_counts=True))
