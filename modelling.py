@@ -1,82 +1,106 @@
-import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 import matplotlib
-from tqdm import tqdm
-from sklearnex  import patch_sklearn
-from lightgbm.sklearn import LGBMClassifier
-from sklearn.preprocessing import LabelEncoder
+# from sklearnex  import patch_sklearn
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
+from sklearn.metrics import average_precision_score
+import joblib
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_score
-patch_sklearn()
-matplotlib.use('Qt5Agg')
+from tensorflow.keras.optimizers import *
+from tensorflow.keras.initializers import *
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import LSTM, Dense, TimeDistributed, Conv1D, MaxPooling1D, Dropout, Flatten, Dense
+from tensorflow.keras.callbacks import TensorBoard
+import tensorflow as tf
+from keras.callbacks import ModelCheckpoint
+from project_functions import *
 
 
-# setting train / test paths for tfog defog datasets
-# ---train---
-tfog_train_path = 'data/train/tdcsfog/'
-tfog_train_files = os.listdir(tfog_train_path)
-tfog_train_data = pd.DataFrame()
+# patch_sklearn()
+# matplotlib.use('Qt5Agg')
 
-defog_train_path = 'data/train/defog/'
-defog_train_files = os.listdir(defog_train_path)
-defog_train_data = pd.DataFrame()
-# ---test---
-tfog_test_path = 'data/test/tdcsfog/'
-tfog_test_files = os.listdir(tfog_test_path)
-tfog_test_data = pd.DataFrame()
+# data = read_files_parallel('data/train/tdcsfog/')
+data = pd.read_csv('engineered_data.csv')
 
-defog_test_path = 'data/test/defog/'
-defog_test_files = os.listdir(defog_test_path)
-defog_test_data = pd.DataFrame()
+print(data.dtypes)
 
-# file reading and concatenation for training files
-for file in tqdm(tfog_train_files):
-    patient_tfog_train_data = pd.read_csv(tfog_train_path+file)
-    patient_tfog_train_data['session_id'] = file.replace('.csv', '')
-    tfog_train_data = pd.concat([tfog_train_data, patient_tfog_train_data], ignore_index=True)
+target_cols = ['starth', 'turn', 'walk', 'normal']
 
+normal = data[data['normal'] == 1].sample(frac=0.1).index
+turn = data[data['turn'] == 1].sample(frac=0.25).index
+starth = data[data['starth'] == 1].sample(frac=1).index
+walk = data[data['walk'] == 1].sample(frac=1).index
+print([len(x) for x in [normal, turn, starth, walk]])
 
-conditions = [tfog_train_data['StartHesitation'] == 1,
-              tfog_train_data['Turn'] == 1,
-              tfog_train_data['Walking'] == 1]
+filter_index = pd.concat([normal.to_series(), turn.to_series(), starth.to_series(), walk.to_series()], axis=0)
+filter_index = pd.Index(filter_index)
 
-choises = ['StartHesitation', 'Turn', 'Walking']
-tfog_train_data['event'] = np.select(conditions, choises, default='normal')
+filtered_data = data[data.index.isin(filter_index)].copy()
+filtered_data.dropna(inplace=True)
 
-event_encoder = LabelEncoder()
-tfog_train_data['target'] = event_encoder.fit_transform(tfog_train_data['event'])
+x = filtered_data.drop(columns=['time', 'starth', 'turn', 'walk', 'session_id', 'normal']).copy()
+y = filtered_data[target_cols].copy().to_numpy()
 
-x = tfog_train_data[['AccV', 'AccML', 'AccAP']].copy()
-y = tfog_train_data['target'].copy()
+x_cols = x.columns
+print(x.isnull().sum())
 
-lgb = LGBMClassifier(objective='multiclass', n_estimators=10, max_depth=7,
-                     learning_rate=0.1, num_class=4)
+x = StandardScaler().fit_transform(x)
+x = MinMaxScaler((0, 1)).fit_transform(x)
 
-lgb.fit(x, y, eval_metric='multi_logloss')
+# for col in range(x.shape[1]):
+#     plt.plot(x[:,col])
+#     plt.show()
 
-# file reading and concatenation for test files
-for tfog_file, defog_file in tqdm(zip(tfog_test_files, defog_test_files)):
-    patient_tfog_data = pd.read_csv(tfog_test_path+tfog_file)
-    patient_tfog_data['session_id'] = tfog_file.replace('.csv', '')
-    tfog_test_data = pd.concat([tfog_test_data, patient_tfog_data], ignore_index=True)
+x = x[:, :3]
 
-    patient_defog_data = pd.read_csv(defog_test_path+defog_file)
-    patient_defog_data['session_id'] = defog_file.replace('.csv', '')
-    defog_test_data = pd.concat([defog_test_data, patient_defog_data], ignore_index=True)
+num_rows = x.shape[0]
+sequence_length = 512
 
-tfog_test_data['Id'] = tfog_test_data['session_id'] + '_' + tfog_test_data['Time'].astype(str)
-defog_test_data['Id'] = defog_test_data['session_id'] + '_' + defog_test_data['Time'].astype(str)
+# Calculate the required padding
+trim_size = num_rows % sequence_length
 
-test_data = pd.concat([tfog_test_data, defog_test_data], axis=0, ignore_index=True)
-test_data = test_data[['Id', 'AccV', 'AccML', 'AccAP']].copy()
+# if trim_size != 0:
+#     x = x[:-trim_size]
+#     y = y[:-trim_size]
+#
+# x = np.reshape(x, (-1, sequence_length, x.shape[1]))
+# y = np.reshape(y, (-1, sequence_length, y.shape[1]))
 
-test_data[['StartHesitation', 'Turn', 'Walking', 'Normal']] = lgb.predict_proba(test_data.drop(columns=['Id']))
-test_data[['StartHesitation', 'Turn', 'Walking', 'Normal']] = test_data[['StartHesitation', 'Turn', 'Walking', 'Normal']].round(3)
+x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
 
-sample_submission = pd.read_csv('data/sample_submission.csv')
-submission = pd.merge(sample_submission[['Id']], test_data[['Id', 'StartHesitation', 'Turn', 'Walking']], how='left', on='Id').fillna(0.0)
-submission.to_csv('submission.csv', index=False)
+tensorboard_callback = TensorBoard(log_dir="./logs")
+# Create LSTM model with Sequential API
+with tf.device('/GPU:0'):
+    model = Sequential()
+    model.add(Dense(64, kernel_initializer=GlorotUniform(), input_shape=x_train.shape[1:], activation='relu'))
+    # model.add(Dropout(0.5))
+    model.add(Dense(64, kernel_initializer=GlorotUniform(), activation='relu'))
+    # model.add(Dropout(0.5))
+    model.add(Dense(64, kernel_initializer=GlorotUniform(), activation='relu'))
+    # model.add(Dropout(0.5))
+    model.add(Dense(64, kernel_initializer=GlorotUniform(), activation='relu'))
+    # model.add(Dropout(0.5))
+    model.add(Dense(y_train.shape[1], kernel_initializer=GlorotUniform(), activation='softmax'))
+    model.compile(optimizer=SGD(learning_rate=0.01), loss="categorical_crossentropy", metrics=['AUC'])
+    model.summary()
+    model_checkpoint = ModelCheckpoint('best_model.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
+    model.fit(x_train, y_train, epochs=3, batch_size=512, validation_split=0.2, callbacks=[tensorboard_callback])
 
+weights = model.layers[0].get_weights()
+weights2 = model.layers[1].get_weights()
+
+scores = model.evaluate(x_test, y_test, verbose=1)
+predictions = model.predict(x_test)
+sub = np.reshape(predictions, (-1, y_train.shape[1]))
+
+for num, col in zip(range(5), ['starth', 'turn', 'walk', 'normal']):
+    plt.plot(sub[:, num])
+    plt.title(col)
+    plt.show()
+
+model.save('tf_model.h5')
+
+# tensorboard --logdir ./logs --purge_orphaned_data true
+# rm -r ./logs/*
