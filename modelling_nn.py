@@ -4,40 +4,63 @@ from sklearn.metrics import average_precision_score
 import joblib
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.optimizers import SGD
-from tensorflow.keras.initializers import GlorotUniform
+from tensorflow.keras.initializers import GlorotUniform, RandomNormal
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense, TimeDistributed, Conv1D, MaxPooling1D, Dropout, Flatten, Dense
 from tensorflow.keras.callbacks import TensorBoard
 import tensorflow as tf
-from data2_model_adapter import prepare_data4_nn
+from data2_model_adapter import prepare_data4_rnn
 
 
-x, y = prepare_data4_nn('engineered_data2.csv')
+class AveragePrecision(tf.keras.metrics.Metric):
 
-x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+    def __init__(self, num_classes, thresholds=None, name='avg_precision', **kwargs):
+        super(AveragePrecision, self).__init__(name=name, **kwargs)
+        self.class_precision = [tf.keras.metrics.Precision(thresholds) for _ in range(num_classes)]
 
-# Create LSTM model with Sequential API
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        for i, precision in enumerate(self.class_precision):
+            precision.update_state(y_true[..., i], y_pred[..., i])
+
+    def result(self):
+        return tf.math.reduce_mean([precision.result() for precision in self.class_precision])
+
+    def reset_state(self):
+        for precision in self.class_precision:
+            precision.reset_state()
+
+
+x, y = prepare_data4_rnn('data/engineered_data2.csv', sequence_length=512)
+# x = pd.DataFrame(x)
+# x.isnull().sum()
+# np.isinf(x).any()
+
 with tf.device('/GPU:0'):
     model = Sequential()
-    model.add(Dense(64, kernel_initializer=GlorotUniform(), input_shape=x_train.shape[1:], activation='relu'))
+    model.add(LSTM(64, kernel_initializer=RandomNormal(), input_shape=x.shape[1:], activation='relu', return_sequences=True))
     # model.add(Dropout(0.5))
-    model.add(Dense(64, kernel_initializer=GlorotUniform(), activation='relu'))
+    # model.add(Dense(64, kernel_initializer=RandomNormal(), activation='relu'))
     # model.add(Dropout(0.5))
-    model.add(Dense(64, kernel_initializer=GlorotUniform(), activation='relu'))
+    # model.add(Dense(64, kernel_initializer=RandomNormal(), activation='relu'))
     # model.add(Dropout(0.5))
-    model.add(Dense(64, kernel_initializer=GlorotUniform(), activation='relu'))
+    # model.add(Dense(64, kernel_initializer=RandomNormal(), activation='relu'))
     # model.add(Dropout(0.5))
-    model.add(Dense(y_train.shape[1], kernel_initializer=GlorotUniform(), activation='softmax'))
-    model.compile(optimizer=SGD(learning_rate=0.01), loss="categorical_crossentropy", metrics=['AUC'])
+    model.add(TimeDistributed(Dense(y.shape[1], kernel_initializer=RandomNormal(), activation='sigmoid')))
+    model.compile(optimizer=SGD(learning_rate=0.01), loss='categorical_crossentropy',
+                  metrics='categorical_accuracy')
     model.summary()
-    model.fit(x_train, y_train, epochs=3, batch_size=512, validation_split=0.2)
+    model.fit(x, y, epochs=1, batch_size=1024)
 
+# 'categorical_crossentropy'
+# 'categorical_accuracy'
+# AveragePrecision(y.shape[1])
+# tf.keras.losses.BinaryCrossentropy()
 weights = model.layers[0].get_weights()
 weights2 = model.layers[1].get_weights()
 
-scores = model.evaluate(x_test, y_test, verbose=1)
-predictions = model.predict(x_test)
-sub = np.reshape(predictions, (-1, y_train.shape[1]))
+scores = model.evaluate(x, y, verbose=1)
+predictions = model.predict(x)
+sub = np.reshape(predictions, (-1, y.shape[1]))
 
 model.save('tf_model.h5')
 

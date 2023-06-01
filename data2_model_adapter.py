@@ -5,7 +5,10 @@ import joblib
 
 
 def prepare_data(engineered_file_path):
-    data = pd.read_csv(engineered_file_path)
+    data = pd.read_csv(engineered_file_path, low_memory=False)
+
+    data.drop(columns=['Time', 'Test'], inplace=True)
+    data.dropna(inplace=True)
 
     sessions = data['session_id'].unique()
     session_labels = {value: key for key, value in dict(enumerate(sessions)).items()}
@@ -21,7 +24,7 @@ def prepare_data4_booster(path):
 
     target_cols = ['StartHesitation', 'Turn', 'Walking', 'Normal']
 
-    x = data.drop(columns=['Time']+target_cols).copy()
+    x = data.drop(columns=target_cols).copy()
     y = data[target_cols].idxmax(axis=1)
     return x, y
 
@@ -31,7 +34,7 @@ def prepare_data4_nn(path):
 
     target_cols = ['StartHesitation', 'Turn', 'Walking', 'Normal']
 
-    x = data.drop(columns=['Time']+target_cols).copy()
+    x = data.drop(columns=target_cols).copy()
     y = data[target_cols].to_numpy()
 
     x = StandardScaler().fit_transform(x)
@@ -44,7 +47,7 @@ def prepare_data4_rnn(path, sequence_length):
 
     target_cols = ['StartHesitation', 'Turn', 'Walking', 'Normal']
 
-    x = data.drop(columns=['Time'] + target_cols).copy()
+    x = data.drop(columns=target_cols).copy()
     y = data[target_cols].to_numpy()
 
     x = StandardScaler().fit_transform(x)
