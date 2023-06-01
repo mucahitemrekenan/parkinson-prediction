@@ -1,31 +1,42 @@
-import numpy as np
-from seglearn.feature_functions import *
-from tsflex.features import FeatureDescriptor, FeatureCollection, MultipleFeatureDescriptors
-from tsflex.features.integrations import seglearn_feature_dict_wrapper
+from multiprocessing.spawn import freeze_support
 from project_functions import *
-import dask.dataframe as dd
-from time import time
 
+# if __name__ == '__main__':
+#     freeze_support()
 
 tfog_data = read_files_parallel('data/train/tdcsfog/')
 defog_data = read_files_parallel('data/train/defog/')
+# notype_data = read_files_parallel('data/train/notype/')
 
+# defog_data = defog_data[(defog_data['Valid'] == 1) & (defog_data['Task'] == 1)]
+# defog_data.drop(columns=['Valid', 'Task'], inplace=True)
 
+data = pd.concat([tfog_data, defog_data], axis=0)
+del tfog_data, defog_data
 
-rename_cols(data)
+if ('Valid' in data.columns) & ('Task' in data.columns):
+    data.drop(columns=['Valid', 'Task'], inplace=True)
+
 generate_normal_col(data)
 
-rollingw_config = {'accv': [4, 8, 24, 48, 96, 128, 256, 512, 1024]}
-start = time()
-new_data = generate_rollingw_columns(data, rollingw_config, np.mean)
-end = time()
-print(end - start)
+main_config = {
+    abs_energy: {'AccV': [25],
+                 'AccML': [32],
+                 'AccAP': [50]},
 
+    linear_trend_func: {'AccV': [5, 20],
+                        'AccML': [10, 25],
+                        'AccAP': [15, 50]},
 
-rollingw_config = {'accv': [4, 8, 24, 48, 96, 128, 256, 512, 1024],
-                   'accml': [4, 8, 24, 48, 96, 128, 256, 512, 1024],
-                   'accap': [4, 8, 24, 48, 96, 128, 256, 512, 1024]}
-start = time()
-new_data = generate_rollingw_columns(data, rollingw_config, np.mean)
-end = time()
-print(end - start)
+    autocorrelation_func: {'AccV': [5, 25],
+                           'AccML': [10, 50],
+                           'AccAP': [15, 100]},
+
+    mean_diff_func: {'AccV': [2],
+                     'AccML': [5],
+                     'AccAP': [10]}
+}
+
+engineered_data = generate_rollingw_columns(data, main_config)
+engineered_data.dropna(inplace=True)
+engineered_data.to_csv('data/engineered_data.csv', index=False)
