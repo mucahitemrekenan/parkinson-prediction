@@ -6,7 +6,7 @@ import seaborn as sns
 from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder
 from sklearnex import patch_sklearn
-from project_functions import *
+from base import *
 
 patch_sklearn()
 matplotlib.use('Qt5Agg')
@@ -31,7 +31,7 @@ def plot_sessions(sensor_data: pd.DataFrame, sessions: list, target_cols: list,
 
 
 # variables to target dataset
-source_type = 'defog'
+source_type = 'tdcsfog'
 path = f'data/train/{source_type}/'
 target_cols = ['StartHesitation', 'Turn', 'Walking']
 

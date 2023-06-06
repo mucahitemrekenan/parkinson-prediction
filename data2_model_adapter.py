@@ -15,7 +15,8 @@ def prepare_data(engineered_file_path):
     data['session_id'] = data['session_id'].map(session_labels).fillna(999)
     data['session_id'] = np.sin(data['session_id'])
 
-    joblib.dump(session_labels, 'sessions_dict.joblib')
+    joblib.dump(session_labels, 'converters/sessions_dict.joblib')
+
     return data
 
 
@@ -37,8 +38,15 @@ def prepare_data4_nn(path):
     x = data.drop(columns=target_cols).copy()
     y = data[target_cols].to_numpy()
 
-    x = StandardScaler().fit_transform(x)
-    x = MinMaxScaler((0, 1)).fit_transform(x)
+    standard_scaler = StandardScaler()
+    minmax_scaler = MinMaxScaler((0, 1))
+
+    x = standard_scaler.fit_transform(x)
+    x = minmax_scaler.fit_transform(x)
+
+    scalers = {'standard_scaler': standard_scaler, 'minmax_scaler': minmax_scaler}
+    joblib.dump(scalers, 'converters/scalers.joblib')
+
     return x, y
 
 
@@ -50,8 +58,14 @@ def prepare_data4_rnn(path, sequence_length):
     x = data.drop(columns=target_cols).copy()
     y = data[target_cols].to_numpy()
 
-    x = StandardScaler().fit_transform(x)
-    x = MinMaxScaler((0, 1)).fit_transform(x)
+    standard_scaler = StandardScaler()
+    minmax_scaler = MinMaxScaler((0, 1))
+
+    x = standard_scaler.fit_transform(x)
+    x = minmax_scaler.fit_transform(x)
+
+    scalers = {'standard_scaler': standard_scaler, 'minmax_scaler': minmax_scaler}
+    joblib.dump(scalers, 'converters/scalers.joblib')
 
     num_rows = x.shape[0]
 
@@ -64,5 +78,6 @@ def prepare_data4_rnn(path, sequence_length):
 
     x = np.reshape(x, (-1, sequence_length, x.shape[1]))
     y = np.reshape(y, (-1, sequence_length, y.shape[1]))
+
     return x, y
 

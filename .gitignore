@@ -3,7 +3,7 @@ defog
 models
 tdcsfog
 venv
-sessions_dict.joblib
+converters/sessions_dict.joblib
 sensor movement explanation.png
 con1d.py
 process_module.py
