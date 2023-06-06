@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import average_precision_score
 import joblib
-from sklearn.model_selection import train_test_split
+from tqdm import tqdm
+from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.initializers import GlorotUniform, RandomNormal
 from tensorflow.keras.models import Sequential, load_model
@@ -51,30 +52,47 @@ class_weights = {0: (20_000_000 - 305290) / 20_000_000,
                  2: (20_000_000 - 300239) / 20_000_000,
                  3: (20_000_000 - 17735798) / 20_000_000}
 
-with tf.device('/GPU:0'):
-    model = Sequential()
-    model.add(Dense(64, kernel_initializer=RandomNormal(), input_shape=trainer.x.shape[1:], activation='relu'))
-    # model.add(Dropout(0.5))
-    model.add(Dense(64, kernel_initializer=RandomNormal(), activation='relu'))
-    # model.add(Dropout(0.5))
-    model.add(Dense(64, kernel_initializer=RandomNormal(), activation='relu'))
-    # model.add(Dropout(0.5))
-    model.add(Dense(trainer.y.shape[1], kernel_initializer=RandomNormal(), activation='sigmoid'))
-    model.compile(optimizer=SGD(learning_rate=0.01), loss='categorical_crossentropy',
-                  metrics='categorical_accuracy')
-    model.summary()
-    model.fit(trainer.x, trainer.y, epochs=3, batch_size=1024)#, class_weight=class_weights
+# with tf.device('/GPU:0'):
+#     model = Sequential()
+#     model.add(Dense(64, kernel_initializer=RandomNormal(), input_shape=trainer.x.shape[1:], activation='relu'))
+#     # model.add(Dropout(0.5))
+#     model.add(Dense(64, kernel_initializer=RandomNormal(), activation='relu'))
+#     # model.add(Dropout(0.5))
+#     model.add(Dense(64, kernel_initializer=RandomNormal(), activation='relu'))
+#     # model.add(Dropout(0.5))
+#     model.add(Dense(trainer.y.shape[1], kernel_initializer=RandomNormal(), activation='sigmoid'))
+#     model.compile(optimizer=SGD(learning_rate=0.01), loss='categorical_crossentropy',
+#                   metrics='categorical_accuracy')
+#     model.summary()
+#     model.fit(trainer.x, trainer.y, epochs=3, batch_size=1024)#, class_weight=class_weights
+#
+# # 'categorical_crossentropy'
+# # 'categorical_accuracy'
+# # AveragePrecision(y.shape[1])
+# # tf.keras.losses.BinaryCrossentropy()
+# weights = model.layers[0].get_weights()
+# weights2 = model.layers[1].get_weights()
+#
+# scores = model.evaluate(trainer.x, trainer.y, verbose=1)
+# # predictions = model.predict(x)
+# # sub = np.reshape(predictions, (-1, y.shape[1]))
+#
+# model.save('models/tf_nn_model.h5')
+#
 
-# 'categorical_crossentropy'
-# 'categorical_accuracy'
-# AveragePrecision(y.shape[1])
-# tf.keras.losses.BinaryCrossentropy()
-weights = model.layers[0].get_weights()
-weights2 = model.layers[1].get_weights()
-
-scores = model.evaluate(trainer.x, trainer.y, verbose=1)
-# predictions = model.predict(x)
-# sub = np.reshape(predictions, (-1, y.shape[1]))
-
-model.save('models/tf_nn_model.h5')
-
+splitter = StratifiedShuffleSplit(n_splits=50, random_state=42)
+for num, (train_index, _) in tqdm(enumerate(splitter.split(trainer.x, trainer.y))):
+    with tf.device('/GPU:0'):
+        model = Sequential()
+        model.add(Dense(16, kernel_initializer=RandomNormal(), input_shape=trainer.x.shape[1:], activation='relu'))
+        model.add(Dropout(0.5))
+        model.add(Dense(16, kernel_initializer=RandomNormal(), activation='relu'))
+        model.add(Dropout(0.5))
+        model.add(Dense(16, kernel_initializer=RandomNormal(), activation='relu'))
+        model.add(Dropout(0.5))
+        model.add(Dense(trainer.y.shape[1], kernel_initializer=RandomNormal(), activation='sigmoid'))
+        model.compile(optimizer=SGD(learning_rate=0.01), loss='categorical_crossentropy',
+                      metrics='categorical_accuracy')
+        model.summary()
+        model.fit(trainer.x[train_index], trainer.y[train_index], epochs=1, batch_size=1024)#, class_weight=class_weights
+    model.save(f'models/tf_nn_multi{num}.h5')

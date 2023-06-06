@@ -28,24 +28,49 @@ inference = Inference(data_path='data/', converters_path='converters/', models_p
 inference.run()
 inference.prepare_data()
 
-model_type = 'booster'
+model_type = 'rnn'
+single = False
+path = 'models/'
 
 if model_type == 'booster':
-    model = joblib.load('models/lgb_model_standalone.joblib')
-    predictions = model.predict_proba(inference.data)
+    if single:
+        model = joblib.load(path+'lgb_model.joblib')
+        predictions = model.predict_proba(inference.data)
+    else:
+        model_path = os.listdir(path)
+        models = [joblib.load(path+f'{model}') for model in model_path if model.startswith('lgb_multi')]
+        predictions = list()
+        for model in models:
+            predictions.append(model.predict_proba(inference.data))
+        predictions = np.mean(predictions, axis=0)
 
 elif model_type == 'nn':
     inference.prepare_data4_nn()
-    model = load_model('models/tf_nn_model.h5')
-    predictions = model.predict(inference.data)
+    if single:
+        model = load_model(path+'tf_nn_model.h5')
+        predictions = model.predict(inference.data)
+    else:
+        model_path = os.listdir(path)
+        models = [load_model(path+f'{model}') for model in model_path if model.startswith('tf_nn_multi')]
+        predictions = list()
+        for model in models:
+            predictions.append(model.predict(inference.data))
+        predictions = np.mean(predictions, axis=0)
 
 elif model_type == 'rnn':
-    inference.prepare_data4_rnn(512)
-    model = load_model('models/tf_rnn_model.h5')
-    predictions = model.predict(inference.data)
-    predictions = np.reshape(predictions, (-1, predictions.shape[2]))
-else:
-    print('specify model type')
+    inference.prepare_data4_rnn(128)
+    if single:
+        model = load_model(path+'tf_rnn_model.h5')
+        predictions = model.predict(inference.data)
+        predictions = np.reshape(predictions, (-1, predictions.shape[2]))
+    else:
+        model_path = os.listdir(path)
+        models = [load_model(path+f'{model}') for model in model_path if model.startswith('tf_rnn_multi')]
+        predictions = list()
+        for model in models:
+            predictions.append(model.predict(inference.data))
+        predictions = np.mean(predictions, axis=0)
+        predictions = np.reshape(predictions, (-1, predictions.shape[2]))
 
 predictions = pd.DataFrame(predictions, columns=inference.target_cols, index=inference.ids.index)
 predictions['Id'] = inference.ids
