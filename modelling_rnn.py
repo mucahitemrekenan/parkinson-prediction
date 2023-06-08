@@ -35,7 +35,7 @@ data = pd.read_csv('data/engineered_data.csv', low_memory=False)
 trainer = Training(data_path='data/', converters_path='converters/', models_path='models/', main_config=main_config)
 trainer.data = data
 trainer.prepare_data()
-trainer.prepare_data4_rnn(sequence_length=128)
+trainer.prepare_data4_rnn(sequence_length=512)
 Training.inspect_data(trainer.data)
 
 # class_weights = np.array([(20_000_000 - 305290) / 20_000_000,
@@ -49,18 +49,18 @@ Training.inspect_data(trainer.data)
 #         sample_weights[i, j] = class_weights[np.argmax(y[i, j])]
 
 
-# with tf.device('/GPU:0'):
-#     model = Sequential()
-#     model.add(LSTM(64, kernel_initializer=RandomNormal(), input_shape=trainer.x.shape[1:], activation='relu', return_sequences=True))
-#     model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
-#     # model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
-#     # model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
-#     # model.add(Dropout(0.5))
-#     model.add(TimeDistributed(Dense(trainer.y.shape[2], kernel_initializer=RandomNormal(), activation='sigmoid')))
-#     model.compile(optimizer=SGD(learning_rate=0.01), loss='categorical_crossentropy',
-#                   metrics='categorical_accuracy')
-#     model.summary()
-#     model.fit(trainer.x, trainer.y, epochs=1, batch_size=1024)#, sample_weight=sample_weights
+with tf.device('/GPU:0'):
+    model = Sequential()
+    model.add(LSTM(64, kernel_initializer=RandomNormal(), input_shape=trainer.x.shape[1:], activation='relu', return_sequences=True))
+    model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
+    # model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
+    # model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
+    # model.add(Dropout(0.5))
+    model.add(TimeDistributed(Dense(trainer.y.shape[2], kernel_initializer=RandomNormal(), activation='sigmoid')))
+    model.compile(optimizer=SGD(learning_rate=0.01), loss='categorical_crossentropy',
+                  metrics='categorical_accuracy')
+    model.summary()
+    model.fit(trainer.x, trainer.y, epochs=3, batch_size=1024)#, sample_weight=sample_weights
 
 # # 'categorical_crossentropy'
 # # 'categorical_accuracy'
@@ -70,23 +70,25 @@ Training.inspect_data(trainer.data)
 # weights2 = model.layers[1].get_weights()
 #
 # # scores = model.evaluate(trainer.x, trainer.y, verbose=1)
-# # predictions = model.predict(x)
-# # sub = np.reshape(predictions, (-1, y.shape[1]))
+predictions = model.predict(trainer.x)
+real = np.reshape(trainer.y, (-1, trainer.y.shape[2]))
+sub = np.reshape(predictions, (-1, predictions.shape[2]))
+print(average_precision_score(real, sub))
 
 # model.save('models/tf_rnn_model.h5')
 
-splitter = StratifiedShuffleSplit(n_splits=50, random_state=42)
-for num, (train_index, _) in tqdm(enumerate(splitter.split(trainer.x[0], trainer.y[0]))):
-    with tf.device('/GPU:0'):
-        model = Sequential()
-        model.add(LSTM(16, kernel_initializer=RandomNormal(), input_shape=trainer.x.shape[1:], activation='relu', return_sequences=True))
-        model.add(LSTM(16, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
-        # model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
-        # model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
-        # model.add(Dropout(0.5))
-        model.add(TimeDistributed(Dense(trainer.y.shape[2], kernel_initializer=RandomNormal(), activation='sigmoid')))
-        model.compile(optimizer=SGD(learning_rate=0.01), loss='categorical_crossentropy',
-                      metrics='categorical_accuracy')
-        model.summary()
-        model.fit(trainer.x[train_index], trainer.y[train_index], epochs=1, batch_size=1024)
-    model.save(f'models/tf_rnn_multi{num}.h5')
+# splitter = StratifiedShuffleSplit(n_splits=50, random_state=42)
+# for num, (train_index, _) in tqdm(enumerate(splitter.split(trainer.x[0], trainer.y[0]))):
+#     with tf.device('/GPU:0'):
+#         model = Sequential()
+#         model.add(LSTM(16, kernel_initializer=RandomNormal(), input_shape=trainer.x.shape[1:], activation='relu', return_sequences=True))
+#         model.add(LSTM(16, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
+#         # model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
+#         # model.add(LSTM(64, kernel_initializer=RandomNormal(), activation='relu', return_sequences=True))
+#         # model.add(Dropout(0.5))
+#         model.add(TimeDistributed(Dense(trainer.y.shape[2], kernel_initializer=RandomNormal(), activation='sigmoid')))
+#         model.compile(optimizer=SGD(learning_rate=0.01), loss='categorical_crossentropy',
+#                       metrics=tf.keras.metrics.Precision())
+#         model.summary()
+#         model.fit(trainer.x[train_index], trainer.y[train_index], epochs=1, batch_size=1024)
+#     model.save(f'models/tf_rnn_multi{num}.h5')

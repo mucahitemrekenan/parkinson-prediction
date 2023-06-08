@@ -8,6 +8,8 @@ from tsfresh.feature_extraction.feature_calculators import *
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import seglearn.feature_functions as seg
 from multiprocessing import Pool, cpu_count
+import scipy as sp
+import pywt
 # import tensorflow as tf
 
 
@@ -33,8 +35,7 @@ class Training:
         self.defog_data = Training.read_files_parallel(self.data_path + 'train/defog/')
         self.defog_data.drop(columns=['Valid', 'Task'], inplace=True)
         self.prepare_meta()
-        self.generate_normal_col()
-        self.generate_rollingw_columns()
+        self.engineer_features()
         self.data.to_csv(self.data_path + 'engineered_data.csv', index=False)
 
     @staticmethod
@@ -94,6 +95,90 @@ class Training:
         self.data['Normal'] = ((self.data['StartHesitation'] == 0) & (self.data['Turn'] == 0) &
                                (self.data['Walking'] == 0)).astype(int)
 
+    # =====================================
+    # Seglearn functions
+    @staticmethod
+    def mean_diff_func(x):
+        return seg.mean_diff([x])[0]
+
+    @staticmethod
+    def mean_func(x):
+        return seg.mean([x])[0]
+
+    @staticmethod
+    def median_func(x):
+        return seg.median([x])[0]
+
+    @staticmethod
+    def abs_energy_func(x):
+        return seg.abs_energy(np.array([list(x)]))[0]
+
+    @staticmethod
+    def std_func(x):
+        return seg.std([x])[0]
+
+    @staticmethod
+    def var_func(x):
+        return seg.var([x])[0]
+
+    @staticmethod
+    def min_func(x):
+        return seg.minimum([x])[0]
+
+    @staticmethod
+    def max_func(x):
+        return seg.maximum([x])[0]
+
+    @staticmethod
+    def skew_func(x):
+        return seg.skew([x])[0]
+
+    @staticmethod
+    def kurt_func(x):
+        return seg.kurt([x])[0]
+
+    @staticmethod
+    def mse_func(x):
+        return seg.mse([x])[0]
+
+    @staticmethod
+    def mnx_func(x):
+        return seg.mean_crossings([x])[0]
+
+    @staticmethod
+    def mean_abs_func(x):
+        return seg.mean_abs([x])[0]
+
+    @staticmethod
+    def zero_cross_func(x):
+        return seg.zero_crossing().__call__(np.array([list(x)]))[0]
+
+    @staticmethod
+    def slope_sign_func(x):
+        return seg.slope_sign_changes().__call__(np.array([list(x)]))[0]
+
+    @staticmethod
+    def waveform_length_func(x):
+        return seg.waveform_length([x])[0]
+
+    @staticmethod
+    def integrated_emg_func(x):
+        return seg.abs_sum([x])[0]
+
+    @staticmethod
+    def emg_var_func(x):
+        return seg.emg_var(np.array([list(x)]))[0]
+
+    @staticmethod
+    def root_mean_square_func(x):
+        return seg.root_mean_square(np.array([list(x)]))[0]
+
+    @staticmethod
+    def willison_amplitude_func(x):
+        return seg.willison_amplitude().__call__(np.array([list(x)]))[0]
+
+    # =========================================
+    # Tsfresh functions
     @staticmethod
     def autocorrelation_func(x):
         return np.nan_to_num(autocorrelation(x, 1))
@@ -105,10 +190,6 @@ class Training:
     @staticmethod
     def linear_trend_func(x):
         return linear_trend(x, [{"attr": "slope"}])[0][1]
-
-    @staticmethod
-    def mean_diff_func(x):
-        return seg.mean_diff([x])[0]
 
     @staticmethod
     def tras_func(x):
@@ -129,10 +210,6 @@ class Training:
     @staticmethod
     def cid_ce_func(x):
         return cid_ce(x, normalize=False)
-
-    @staticmethod
-    def std_func(x):
-        return np.std(x)
 
     @staticmethod
     def function_timer(func):
@@ -162,6 +239,43 @@ class Training:
             manipulated_data.index = self.data.index
             self.data = pd.concat([self.data, manipulated_data], axis=1)
 
+    @staticmethod
+    def detect_steps(signal, frequency=128, smoothing=2, faster_please=False, min_scale_log=3.6, max_scale_log=5.4):
+        scales = np.exp(np.arange(min_scale_log, max_scale_log, 0.05))
+        wavelet = 'morl'  # chosing the Morlet wavelet
+
+        coeff, freq = pywt.cwt(signal, scales, wavelet)
+        coeff_argmax_index = np.argmax(abs(coeff), 0)
+        coeff_max = np.array([coeff[coeff_argmax_index[i], i] for i in range(coeff.shape[1])])
+
+        for i in range(smoothing):
+            coeff, freq = pywt.cwt(coeff_max, scales, wavelet)
+            coeff_argmax_index = np.argmax(abs(coeff), 0).astype(int)
+            coeff_argmax_index = np.round(
+                pd.Series(coeff_argmax_index).rolling(128, center=True, min_periods=1).median()).astype(int)
+            coeff_max = np.array([coeff[coeff_argmax_index[i], i] for i in range(coeff.shape[1])])
+
+        if not faster_please:
+            max_cwt_points = sp.signal.find_peaks(abs(coeff_max), distance=20, width=20)[0]
+            max_cwt_points = np.concatenate(([0], max_cwt_points, [len(signal) - 1]))
+            max_cwt_line_indexes = np.round(np.interp(range(0, len(signal)), max_cwt_points,
+                                                      coeff_argmax_index[max_cwt_points])).astype(int)
+            coeff_max = np.array([coeff[max_cwt_line_indexes[i], i] for i in range(coeff.shape[1])])
+
+        zero_crossings = \
+        np.where(np.diff(np.sign(pd.Series(coeff_max).rolling(10, center=True, min_periods=1).mean())))[0]
+        zero_crossings = np.concatenate(([0], zero_crossings, [len(signal)]))
+        step_lengths = []
+        for i in range(1, len(zero_crossings)):
+            step_lengths = np.concatenate(
+                (step_lengths,
+                 [zero_crossings[i] - zero_crossings[i - 1]] * (zero_crossings[i] - zero_crossings[i - 1])))
+        step_durations = pd.Series(step_lengths).rolling(32, center=True, min_periods=1).median()
+        step_rate = pd.Series(1. / step_durations) * frequency
+        step_rate = step_rate.where(step_rate < 5, 0).rolling(frequency, center=True, min_periods=1).mean()
+
+        return step_rate, step_durations, zero_crossings
+
     def prepare_meta(self):
         subjects = pd.read_csv(self.data_path+'subjects.csv')
         tfog_meta = pd.read_csv(self.data_path+'tdcsfog_metadata.csv')
@@ -185,6 +299,12 @@ class Training:
         self.data['Id'] = self.data['session_id'] + '_' + self.data['Time'].astype(str)
         self.data.rename(columns={'Visit_x': 'Visit'}, inplace=True)
         self.data['Sex'] = self.data['Sex'].map({'F': 0, 'M': 1}).fillna(1)
+
+    def engineer_features(self):
+        self.generate_normal_col()
+        self.generate_rollingw_columns()
+
+        self.data['acc_ml_step_rate'], self.data['acc_ml_step_durations'], _ = Training.detect_steps(self.data['AccML'])
 
     def prepare_data(self):
         self.data.drop(columns=['Id', 'Time', 'Test'], inplace=True)
@@ -290,28 +410,6 @@ class Inference(Training):
         self.data = np.reshape(self.data, (-1, sequence_length, self.data.shape[1]))
 
 
-# class AveragePrecision(tf.keras.metrics.Metric):
-#     def __init__(self, num_classes, thresholds=None, name='avg_precision', **kwargs):
-#         super(AveragePrecision, self).__init__(name=name, **kwargs)
-#         self.num_classes = num_classes
-#         self.thresholds = thresholds
-#         self.class_precision = [tf.keras.metrics.Precision(thresholds) for _ in range(num_classes)]
-#
-#     def update_state(self, y_true, y_pred, sample_weight=None):
-#         for i, precision in enumerate(self.class_precision):
-#             precision.update_state(y_true[..., i], y_pred[..., i])
-#
-#     def result(self):
-#         return tf.math.reduce_mean([precision.result() for precision in self.class_precision])
-#
-#     def reset_state(self):
-#         for precision in self.class_precision:
-#             precision.reset_state()
-#
-#     def get_config(self):
-#         config = super(AveragePrecision, self).get_config()
-#         config.update({"num_classes": self.num_classes, "thresholds": self.thresholds})
-#         return config
 
 
 
