@@ -1,41 +1,28 @@
 from lightgbm.sklearn import LGBMClassifier
-from sklearn.preprocessing import LabelEncoder, MinMaxScaler, StandardScaler
 import joblib
-from sklearn.model_selection import StratifiedShuffleSplit
-from base import *
+from base import TrainingDataPreparation, Utils
+from config import Config
+from multiprocessing.spawn import freeze_support
 
 
-main_config = {
-    abs_energy: {'AccV': [25],
-                 'AccML': [32],
-                 'AccAP': [50]},
+# multiprocessing may throw exceptions thus we use freeze_support
+if __name__ == '__main__':
+    freeze_support()
 
-    Training.linear_trend_func: {'AccV': [5, 20],
-                                 'AccML': [10, 25],
-                                 'AccAP': [15, 50]},
+    training_config = Config()
+    training_config.create_main_config()
 
-    Training.autocorrelation_func: {'AccV': [5, 25],
-                                    'AccML': [10, 50],
-                                    'AccAP': [15, 100]},
+    trainer = TrainingDataPreparation(data_path='data/', converters_path='converters/',
+                                      main_config=training_config.main_config, step=1)
+    trainer.run()
+    trainer.prepare_data4_booster()
+    Utils.inspect_data(trainer.data)
 
-    Training.mean_diff_func: {'AccV': [2],
-                              'AccML': [5],
-                              'AccAP': [10]}
-}
+    lgb = LGBMClassifier(n_estimators=5000, max_depth=6, n_jobs=-1)
+    lgb.fit(trainer.x, trainer.y)
+    joblib.dump(lgb, 'models/lgb_model.joblib')
 
-data = pd.read_csv('data/engineered_data.csv', low_memory=False)
-trainer = Training(data_path='data/', converters_path='converters/', models_path='models/', main_config=main_config)
-trainer.data = data
-trainer.prepare_data()
-trainer.prepare_data4_booster()
-Training.inspect_data(trainer.data)
+    my_dict = {key: value for key, value in zip(lgb.feature_name_, lgb.feature_importances_)}
+    sorted_d = dict(sorted(my_dict.items(), key=lambda item: item[1], reverse=True))
+    print(sorted_d)
 
-# lgb = LGBMClassifier(n_estimators=5000, max_depth=6, n_jobs=-1)
-# lgb.fit(trainer.x, trainer.y)
-# joblib.dump(lgb, 'models/lgb_model.joblib')
-
-splitter = StratifiedShuffleSplit(n_splits=50, random_state=42)
-for num, (train_index, _) in tqdm(enumerate(splitter.split(trainer.x, trainer.y))):
-    lgb = LGBMClassifier(n_estimators=200, max_depth=6, n_jobs=-1)
-    lgb.fit(trainer.x.loc[train_index], trainer.y[train_index])
-    joblib.dump(lgb, f'models/lgb_multi{num}.joblib')

@@ -1,111 +1,49 @@
-from sklearn.model_selection import KFold
-from base import *
-# from tensorflow.keras.models import load_model
+from base import InferenceDataPreparation, Utils, Inference
+from config import Config
+import pandas as pd
 from multiprocessing.spawn import freeze_support
 
 
-# if __name__ == '__main__':
-#     freeze_support()
+# multiprocessing may throw exceptions thus we use freeze_support
+if __name__ == '__main__':
+    freeze_support()
 
-main_config = {
-    abs_energy: {'AccV': [25],
-                 'AccML': [32],
-                 'AccAP': [50]},
+    inference_config = Config()
+    inference_config.create_main_config()
 
-    Training.linear_trend_func: {'AccV': [5, 20],
-                                 'AccML': [10, 25],
-                                 'AccAP': [15, 50]},
+    pre_inference = InferenceDataPreparation(data_path='data/', converters_path='converters/',
+                                             main_config=inference_config.main_config)
+    pre_inference.run()
+    Utils.inspect_data(pre_inference.data)
 
-    Training.autocorrelation_func: {'AccV': [5, 25],
-                                    'AccML': [10, 50],
-                                    'AccAP': [15, 100]},
+    inference = Inference(pre_inference, model_path='models/')
 
-    Training.mean_diff_func: {'AccV': [2],
-                              'AccML': [5],
-                              'AccAP': [10]}
-}
+    model_type = 'nn'
+    single = True
 
-inference = Inference(data_path='data/', converters_path='converters/', models_path='models/', main_config=main_config)
-inference.run()
-inference.prepare_data()
+    if model_type == 'booster':
+        if single:
+            inference.run_single_booster()
+        else:
+            inference.run_multi_booster()
 
-model_type = 'booster'
-single = False
-path = 'models/'
+    elif model_type == 'nn':
+        if single:
+            inference.run_single_nn()
+        else:
+            inference.run_multi_nn()
 
-if model_type == 'booster':
-    if single:
-        model = joblib.load(path+'lgb_model.joblib')
-        predictions = model.predict_proba(inference.data)
-        predictions = pd.DataFrame(predictions, columns=model.classes_, index=inference.ids.index)
-        predictions['Id'] = inference.ids
-    else:
-        model_path = os.listdir(path)
-        models = [joblib.load(path+f'{model}') for model in model_path if model.startswith('lgb_multi')]
-        predictions = list()
-        indexes = list()
-        inference.data.reset_index(drop=True, inplace=True)
-        splitter = KFold(n_splits=len(models), shuffle=True, random_state=42)
-        for model, (_, train_index) in tqdm(zip(models, splitter.split(inference.data))):
-            predictions.append(model.predict_proba(inference.data.loc[train_index]))
-            indexes.append(train_index)
-        indexes = np.concatenate(indexes, axis=0)
-        predictions = np.concatenate(predictions, axis=0)
+    elif model_type == 'rnn':
+        if single:
+            inference.run_single_rnn(sequence_length=512)
+        else:
+            inference.run_multi_rnn(sequence_length=512)
 
-        predictions = pd.DataFrame(predictions, columns=model.classes_, index=indexes)
-        predictions['Id'] = inference.ids.reset_index(drop=True)
+    sample_submission = pd.read_csv('data/sample_submission.csv')
+    submission = pd.merge(sample_submission[['Id']], inference.predictions[['Id', 'StartHesitation', 'Turn', 'Walking']],
+                          how='left', on='Id')
+    print('null counts of submission before fillna:', submission.isnull().sum())
+    submission = submission.fillna(0.0).round(4)
+    submission.to_csv('submission.csv', index=False)
 
-elif model_type == 'nn':
-    inference.prepare_data4_nn()
-    if single:
-        model = load_model(path+'tf_nn_model.h5')
-        predictions = model.predict(inference.data)
-
-        predictions = pd.DataFrame(predictions, columns=inference.target_cols, index=inference.ids.index)
-        predictions['Id'] = inference.ids
-    else:
-        model_path = os.listdir(path)
-        models = [load_model(path+f'{model}') for model in model_path if model.startswith('tf_nn_multi')]
-        predictions = list()
-        indexes = list()
-        splitter = KFold(n_splits=len(models), shuffle=True, random_state=42)
-        for model, (_, train_index) in tqdm(zip(models, splitter.split(inference.data))):
-            predictions.append(model.predict(inference.data[train_index]))
-            indexes.append(train_index)
-        indexes = np.concatenate(indexes, axis=0)
-        predictions = np.concatenate(predictions, axis=0)
-
-        predictions = pd.DataFrame(predictions, columns=inference.target_cols, index=indexes)
-        predictions['Id'] = inference.ids.reset_index(drop=True)
-
-elif model_type == 'rnn':
-    inference.prepare_data4_rnn(128)
-    if single:
-        model = load_model(path+'tf_rnn_model.h5')
-        predictions = model.predict(inference.data)
-        predictions = np.reshape(predictions, (-1, predictions.shape[2]))
-
-        predictions = pd.DataFrame(predictions, columns=inference.target_cols, index=inference.ids.index)
-        predictions['Id'] = inference.ids
-    else:
-        model_path = os.listdir(path)
-        models = [load_model(path+f'{model}') for model in model_path if model.startswith('tf_rnn_multi')]
-        predictions = list()
-        splitter = KFold(n_splits=len(models), shuffle=False)
-        for model, (_, train_index) in tqdm(zip(models, splitter.split(inference.data))):
-            preds = model.predict(inference.data[train_index])
-            predictions.append(np.reshape(preds, (-1, preds.shape[2])))
-
-        predictions = np.concatenate(predictions, axis=0)
-
-        predictions = pd.DataFrame(predictions, columns=inference.target_cols)
-        predictions['Id'] = inference.ids.reset_index(drop=True)
-
-
-
-sample_submission = pd.read_csv('data/sample_submission.csv')
-submission = pd.merge(sample_submission[['Id']], predictions[['Id', 'StartHesitation', 'Turn', 'Walking']], how='left', on='Id')
-print('null counts of submission before fillna:', submission.isnull().sum())
-submission = submission.fillna(0.0).round(4)
-submission.to_csv('submission.csv', index=False)
-Training.inspect_data(submission)
+    Utils.inspect_data(submission)

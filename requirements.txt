@@ -1,0 +1,11 @@
+tqdm == 4.65.0
+joblib == 1.2.0
+tsfresh==0.20.1
+sklearn==0.0.post5
+seglearn == 1.2.5
+tensorflow==2.10.0
+scipy == 1.10.1
+pywt == 1.4.1
+numpy==1.24.0
+pandas==2.0.2
+lightgbm == 3.3.5
