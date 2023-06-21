@@ -9,3 +9,4 @@ pywt == 1.4.1
 numpy==1.24.0
 pandas==2.0.2
 lightgbm == 3.3.5
+matplotlib == 3.7.1
